@@ -2,8 +2,9 @@
 # written in python
 
 import requests
-#url=input('enter the domain:')
-url = "https://google.com"
+url=input('enter the domain:')
+#
+#url = "https://google.com"
 response = requests.get(url)
 from bs4 import BeautifulSoup
 soup = BeautifulSoup(response.text, 'html.parser')
