@@ -2,7 +2,7 @@
 # written in python
 
 import requests
-url=input('enter the domain:')
+url=input('enter the domain (with https/http schema):')
 #
 #url = "https://google.com"
 response = requests.get(url)
@@ -10,12 +10,9 @@ from bs4 import BeautifulSoup
 soup = BeautifulSoup(response.text, 'html.parser')
 print("debug1")
 print("*")
-print("*")
 print("the url you have selected is "  + url)
-print("*")
 print("*")
 print("+", soup.title)
 print("*")
 print("+", soup.a)
-print("*")
 print("*")
