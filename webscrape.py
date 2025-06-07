@@ -2,17 +2,15 @@
 # written in python
 
 import requests
-url=input('enter the domain (with https/http schema):')
-#
-#url = "https://google.com"
-response = requests.get(url)
 from bs4 import BeautifulSoup
+
+url = input('enter the domain (with https/http schema):')
+response = requests.get(url)
 soup = BeautifulSoup(response.text, 'html.parser')
-print("debug1")
-print("*")
-print("the url you have selected is "  + url)
-print("*")
-print("+", soup.title)
-print("*")
-print("+", soup.a)
-print("*")
+
+print("the url you have selected is " + url)
+print("All URLs found on the page:")
+
+# Find all <a> tags with href attribute
+for link in soup.find_all('a', href=True):
+    print(link['href'])
