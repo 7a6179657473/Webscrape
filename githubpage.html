@@ -1,0 +1,286 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Scraping Results - 7a6179657473.github.io</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .header h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .source-url {
+            color: #666;
+            font-size: 18px;
+            word-break: break-all;
+        }
+        .timestamp {
+            color: #999;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        .summary {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+        }
+        .summary-item {
+            text-align: center;
+        }
+        .summary-number {
+            font-size: 28px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .summary-label {
+            color: #666;
+            font-size: 14px;
+        }
+        .section {
+            margin: 30px 0;
+        }
+        .section-title {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        .tree {
+            margin-left: 20px;
+        }
+        .domain-group {
+            margin-bottom: 25px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .domain-header {
+            background-color: #f8f9fa;
+            padding: 12px 15px;
+            font-weight: bold;
+            color: #495057;
+            border-bottom: 1px solid #e0e0e0;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .domain-header:hover {
+            background-color: #e9ecef;
+        }
+        .domain-header::before {
+            content: '▼ ';
+            font-size: 12px;
+        }
+        .domain-content {
+            padding: 0;
+        }
+        .link-item, .email-item {
+            padding: 10px 15px;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background-color 0.2s;
+        }
+        .link-item:hover, .email-item:hover {
+            background-color: #f8f9fa;
+        }
+        .link-item:last-child, .email-item:last-child {
+            border-bottom: none;
+        }
+        .link-item a {
+            color: #007bff;
+            text-decoration: none;
+            word-break: break-all;
+        }
+        .link-item a:hover {
+            text-decoration: underline;
+        }
+        .email-list {
+            background-color: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .no-results {
+            text-align: center;
+            color: #999;
+            font-style: italic;
+            padding: 40px;
+        }
+        .link-count {
+            background-color: #6c757d;
+            color: white;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            margin-left: 10px;
+        }
+        @media (max-width: 768px) {
+            .summary {
+                flex-direction: column;
+                gap: 20px;
+            }
+            .container {
+                padding: 15px;
+            }
+        }
+    </style>
+    <script>
+        function toggleDomain(element) {
+            const content = element.nextElementSibling;
+            const arrow = element.querySelector('::before');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                element.style.setProperty('--arrow', '"▼ "');
+            } else {
+                content.style.display = 'none';
+                element.style.setProperty('--arrow', '"▶ "');
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🕷️ Web Scraping Results</h1>
+            <div class="source-url">https://7a6179657473.github.io/index.html</div>
+            <div class="timestamp">Scraped on 2025-09-11 at 00:23:58</div>
+        </div>
+        
+        <div class="summary">
+            <div class="summary-item">
+                <div class="summary-number">14</div>
+                <div class="summary-label">Links Found</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-number">0</div>
+                <div class="summary-label">Emails Found</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-number">3</div>
+                <div class="summary-label">Domains</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">🔗 Links by Domain</h2>
+            <div class="tree">
+
+                <div class="domain-group">
+                    <div class="domain-header" onclick="toggleDomain(this)">
+                        7a6179657473.github.io <span class="link-count">12</span>
+                    </div>
+                    <div class="domain-content">
+
+                        <div class="link-item">
+                            <a href="https://7a6179657473.github.io/DRP-planning.html" target="_blank">https://7a6179657473.github.io/DRP-planning.html</a>
+                        </div>
+
+                        <div class="link-item">
+                            <a href="https://7a6179657473.github.io/Sec-audits.html" target="_blank">https://7a6179657473.github.io/Sec-audits.html</a>
+                        </div>
+
+                        <div class="link-item">
+                            <a href="https://7a6179657473.github.io/about_me.html" target="_blank">https://7a6179657473.github.io/about_me.html</a>
+                        </div>
+
+                        <div class="link-item">
+                            <a href="https://7a6179657473.github.io/desktop-laptop.html" target="_blank">https://7a6179657473.github.io/desktop-laptop.html</a>
+                        </div>
+
+                        <div class="link-item">
+                            <a href="https://7a6179657473.github.io/favicon.ico" target="_blank">https://7a6179657473.github.io/favicon.ico</a>
+                        </div>
+
+                        <div class="link-item">
+                            <a href="https://7a6179657473.github.io/github-logo.png" target="_blank">https://7a6179657473.github.io/github-logo.png</a>
+                        </div>
+
+                        <div class="link-item">
+                            <a href="https://7a6179657473.github.io/index.html" target="_blank">https://7a6179657473.github.io/index.html</a>
+                        </div>
+
+                        <div class="link-item">
+                            <a href="https://7a6179657473.github.io/phishthefish.html" target="_blank">https://7a6179657473.github.io/phishthefish.html</a>
+                        </div>
+
+                        <div class="link-item">
+                            <a href="https://7a6179657473.github.io/styles.css" target="_blank">https://7a6179657473.github.io/styles.css</a>
+                        </div>
+
+                        <div class="link-item">
+                            <a href="https://7a6179657473.github.io/twitter-logo.png" target="_blank">https://7a6179657473.github.io/twitter-logo.png</a>
+                        </div>
+
+                        <div class="link-item">
+                            <a href="https://7a6179657473.github.io/under-construction.html" target="_blank">https://7a6179657473.github.io/under-construction.html</a>
+                        </div>
+
+                        <div class="link-item">
+                            <a href="https://7a6179657473.github.io/wpa.html" target="_blank">https://7a6179657473.github.io/wpa.html</a>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="domain-group">
+                    <div class="domain-header" onclick="toggleDomain(this)">
+                        github.com <span class="link-count">1</span>
+                    </div>
+                    <div class="domain-content">
+
+                        <div class="link-item">
+                            <a href="https://github.com/7a6179657473" target="_blank">https://github.com/7a6179657473</a>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="domain-group">
+                    <div class="domain-header" onclick="toggleDomain(this)">
+                        twitter.com <span class="link-count">1</span>
+                    </div>
+                    <div class="domain-content">
+
+                        <div class="link-item">
+                            <a href="https://twitter.com/zayets8" target="_blank">https://twitter.com/zayets8</a>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">📧 Email Addresses</h2>
+            <div class="no-results">No email addresses found on this page.</div>
+        </div>
+
+    </div>
+</body>
+</html>
