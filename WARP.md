@@ -39,6 +39,16 @@ The codebase follows a modular single-file architecture:
 
 - **`parse_arguments()`**: Handles command-line argument parsing for URL and output options
 
+- **`validate_url(url)`**: Validates URLs for security before making requests
+  - Ensures only HTTP/HTTPS schemes are allowed
+  - Validates URL format and length
+  - Prevents malformed or dangerous URLs
+
+- **`sanitize_filename(filename)`**: Sanitizes output filenames to prevent path traversal
+  - Removes dangerous characters and path separators
+  - Prevents directory traversal attacks
+  - Enforces reasonable filename length limits
+
 - **`main()`**: Orchestrates the scraping process with proper error handling and HTML generation
 
 ## Dependencies
@@ -123,6 +133,25 @@ When using `-o` without a filename, creates files like:
 ```
 webscrape_example.com_20250911_002023.html
 ```
+
+## Security Features
+
+The script includes several security measures to prevent exploitation:
+
+### Input Validation
+- **URL Validation**: Only HTTP/HTTPS URLs are accepted
+- **URL Length Limits**: Prevents excessively long URLs
+- **Scheme Validation**: Blocks dangerous URL schemes
+
+### Output Security
+- **HTML Escaping**: All user-controlled content is escaped to prevent XSS
+- **Path Traversal Prevention**: Filenames are sanitized to prevent directory traversal
+- **Character Filtering**: Dangerous filename characters are removed
+
+### Network Security
+- **Timeout Protection**: 10-second timeout prevents hanging requests
+- **Error Handling**: Graceful handling of network failures
+- **User-Agent Headers**: Professional browser identification
 
 ### Testing the Script
 Test with a sample URL:

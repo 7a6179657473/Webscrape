@@ -9,6 +9,7 @@ import sys
 import argparse
 from datetime import datetime
 import os
+import html
 
 def extract_links(soup, base_url):
     """Extract all links from the webpage, including various sources."""
@@ -78,6 +79,50 @@ def extract_emails(soup, page_text):
             emails.add(email)
     
     return sorted(emails)
+
+def validate_url(url):
+    """Validate URL to ensure it's safe to request."""
+    try:
+        parsed = urlparse(url)
+        
+        # Check for valid scheme
+        if parsed.scheme not in ['http', 'https']:
+            return False, "Only HTTP and HTTPS URLs are allowed"
+        
+        # Check for valid netloc (domain)
+        if not parsed.netloc:
+            return False, "Invalid URL: missing domain"
+        
+        # Prevent localhost/private IP access (optional security measure)
+        # Uncomment these lines for additional security in production
+        # if parsed.netloc.lower() in ['localhost', '127.0.0.1', '0.0.0.0']:
+        #     return False, "Local URLs are not allowed"
+        
+        # Check for reasonable URL length
+        if len(url) > 2048:
+            return False, "URL too long"
+        
+        return True, "Valid URL"
+        
+    except Exception as e:
+        return False, f"URL validation error: {e}"
+
+def sanitize_filename(filename):
+    """Sanitize filename to prevent path traversal attacks."""
+    # Remove any path separators and dangerous characters
+    import re
+    # Remove path separators and potentially dangerous characters
+    filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+    # Remove any path traversal attempts
+    filename = os.path.basename(filename)
+    # Ensure filename is not empty and has reasonable length
+    if not filename or filename.startswith('.'):
+        filename = 'webscrape_output.html'
+    # Limit filename length
+    if len(filename) > 100:
+        name, ext = os.path.splitext(filename)
+        filename = name[:96] + ext
+    return filename
 
 def generate_html_tree(url, links, emails, output_file):
     """Generate an HTML file with a tree visualization of links and emails."""
@@ -261,7 +306,7 @@ def generate_html_tree(url, links, emails, output_file):
     <div class="container">
         <div class="header">
             <h1>🕷️ Web Scraping Results</h1>
-            <div class="source-url">{url}</div>
+            <div class="source-url">{html.escape(url)}</div>
             <div class="timestamp">Scraped on {datetime.now().strftime('%Y-%m-%d at %H:%M:%S')}</div>
         </div>
         
@@ -293,7 +338,7 @@ def generate_html_tree(url, links, emails, output_file):
             html_content += f"""
                 <div class="domain-group">
                     <div class="domain-header" onclick="toggleDomain(this)">
-                        {domain} <span class="link-count">{len(domain_links)}</span>
+                        {html.escape(domain)} <span class="link-count">{len(domain_links)}</span>
                     </div>
                     <div class="domain-content">
 """
@@ -301,7 +346,7 @@ def generate_html_tree(url, links, emails, output_file):
             for link in sorted(domain_links):
                 html_content += f"""
                         <div class="link-item">
-                            <a href="{link}" target="_blank">{link}</a>
+                            <a href="{html.escape(link)}" target="_blank">{html.escape(link)}</a>
                         </div>
 """
             
@@ -333,7 +378,7 @@ def generate_html_tree(url, links, emails, output_file):
         for email in emails:
             html_content += f"""
                 <div class="email-item">
-                    <a href="mailto:{email}">{email}</a>
+                    <a href="mailto:{html.escape(email)}">{html.escape(email)}</a>
                 </div>
 """
         
@@ -394,11 +439,13 @@ def main():
         else:
             url = input('Enter the domain (with https/http schema): ').strip()
         
-        # Validate URL format
-        parsed_url = urlparse(url)
-        if not parsed_url.scheme or not parsed_url.netloc:
-            print("Error: Please provide a valid URL with http:// or https://")
+        # Validate URL format and security
+        is_valid, validation_message = validate_url(url)
+        if not is_valid:
+            print(f"Error: {validation_message}")
             sys.exit(1)
+        
+        parsed_url = urlparse(url)
         
         print(f"\nFetching content from: {url}")
         
@@ -447,7 +494,7 @@ def main():
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                 output_file = f"webscrape_{domain}_{timestamp}.html"
             else:
-                output_file = args.output
+                output_file = sanitize_filename(args.output)
             
             print(f"\n=== GENERATING HTML OUTPUT ===")
             print(f"Saving results to: {output_file}")
