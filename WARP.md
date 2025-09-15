@@ -54,8 +54,8 @@ The codebase follows a modular single-file architecture:
 ## Dependencies
 
 The project requires two main Python packages:
-- **requests** (v2.32.3+): For HTTP requests and webpage fetching
-- **beautifulsoup4** (v4.13.4+): For HTML parsing and link/email extraction
+- **requests** (v2.25.0+): For HTTP requests and webpage fetching
+- **beautifulsoup4** (v4.10.0+): For HTML parsing and link/email extraction
 
 Built-in Python modules used:
 - **re**: For regex pattern matching (email extraction)
@@ -64,8 +64,12 @@ Built-in Python modules used:
 - **argparse**: For command-line argument parsing
 - **datetime**: For timestamp generation in HTML reports
 - **os**: For file path operations
+- **html**: For HTML escaping and security
+- **time**: For delays between requests in spider mode
+- **collections**: For deque data structure in spider crawling
+- **threading**: For potential future concurrent operations
 
-Python version: 3.11.9+
+Python version: 3.11.9+ (tested with 3.11.9)
 
 ## Common Development Commands
 
@@ -97,7 +101,12 @@ python webscrape.py --help
 ```
 
 ### Installing Dependencies
-Since there's no requirements.txt file, install dependencies manually:
+Install dependencies from requirements.txt:
+```bash
+pip install -r requirements.txt
+```
+
+Or install manually:
 ```bash
 pip install requests beautifulsoup4
 ```

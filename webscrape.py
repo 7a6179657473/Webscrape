@@ -1,5 +1,24 @@
-## created by zayets @ https://github.com/7a6179657473
-# written in python
+#!/usr/bin/env python3
+"""
+Webscrape - A comprehensive web scraping utility with spider crawling capabilities.
+
+This module provides functionality to:
+- Extract all types of links from webpages (anchor tags, CSS, images, scripts, iframes)
+- Find email addresses using regex patterns and HTML parsing
+- Perform single-page scraping or multi-level spider crawling
+- Generate interactive HTML reports with professional styling
+- Handle security considerations and respectful crawling
+
+Author: zayets @ https://github.com/7a6179657473
+Version: 2.0.0
+Python Version: 3.11+
+License: MIT
+"""
+
+__version__ = "2.0.0"
+__author__ = "zayets"
+__email__ = "zayets@github.com"
+__license__ = "MIT"
 
 import requests
 from bs4 import BeautifulSoup
@@ -14,8 +33,47 @@ import time
 from collections import deque
 import threading
 
+# Constants for configuration
+DEFAULT_TIMEOUT = 10  # seconds
+MAX_URL_LENGTH = 2048  # characters
+MAX_FILENAME_LENGTH = 100  # characters
+DEFAULT_SPIDER_DEPTH = 2
+DEFAULT_SPIDER_DELAY = 1.0  # seconds
+
+# User-Agent string to appear more like a real browser
+DEFAULT_USER_AGENT = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                      'AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/91.0.4472.124 Safari/537.36')
+
+# Email regex pattern (RFC 5322 compliant)
+EMAIL_PATTERN = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+
+# File extensions to skip during spider crawling
+SKIP_EXTENSIONS = {
+    '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg',
+    '.zip', '.rar', '.tar', '.gz', '.exe', '.dmg', '.pkg',
+    '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.mp3', '.mp4', '.avi', '.mov', '.wmv', '.flv',
+    '.css', '.js', '.xml', '.json', '.rss', '.atom'
+}
+
 def extract_links(soup, base_url):
-    """Extract all links from the webpage, including various sources."""
+    """Extract all links from the webpage, including various HTML elements.
+    
+    This function searches for links in multiple HTML elements:
+    - <a href> tags (anchor links)
+    - <link href> tags (CSS, favicons, etc.)
+    - <img src> tags (images)
+    - <script src> tags (JavaScript files)
+    - <iframe src> tags (embedded content)
+    
+    Args:
+        soup (BeautifulSoup): Parsed HTML content
+        base_url (str): Base URL for converting relative links to absolute
+        
+    Returns:
+        list: Sorted list of unique absolute URLs found on the page
+    """
     links = set()  # Use set to avoid duplicates
     
     # Extract from <a> tags with href
@@ -57,11 +115,24 @@ def extract_links(soup, base_url):
     return sorted(links)
 
 def extract_emails(soup, page_text):
-    """Extract all email addresses from the webpage."""
+    """Extract all email addresses from the webpage using multiple methods.
+    
+    This function finds email addresses by:
+    - Regex pattern matching on page text content
+    - Parsing mailto: links in anchor tags
+    - Checking data-email attributes in HTML elements
+    
+    Args:
+        soup (BeautifulSoup): Parsed HTML content
+        page_text (str): Raw text content of the webpage
+        
+    Returns:
+        list: Sorted list of unique email addresses found on the page
+    """
     emails = set()  # Use set to avoid duplicates
     
-    # Regex pattern for email addresses
-    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    # Use the globally defined email pattern
+    email_pattern = EMAIL_PATTERN
     
     # Extract emails from page text
     found_emails = re.findall(email_pattern, page_text)
@@ -84,7 +155,20 @@ def extract_emails(soup, page_text):
     return sorted(emails)
 
 def validate_url(url):
-    """Validate URL to ensure it's safe to request."""
+    """Validate URL to ensure it's safe and properly formatted for requests.
+    
+    Security checks performed:
+    - Ensures only HTTP/HTTPS schemes are allowed
+    - Validates presence of domain (netloc)
+    - Checks for reasonable URL length (max 2048 characters)
+    - Prevents malformed or dangerous URLs
+    
+    Args:
+        url (str): URL to validate
+        
+    Returns:
+        tuple: (is_valid: bool, message: str) indicating validation result
+    """
     try:
         parsed = urlparse(url)
         
@@ -102,8 +186,8 @@ def validate_url(url):
         #     return False, "Local URLs are not allowed"
         
         # Check for reasonable URL length
-        if len(url) > 2048:
-            return False, "URL too long"
+        if len(url) > MAX_URL_LENGTH:
+            return False, f"URL too long (max {MAX_URL_LENGTH} characters)"
         
         return True, "Valid URL"
         
@@ -139,13 +223,7 @@ def should_follow_link(url, base_url, same_domain_only=True, exclude_patterns=No
             return False
         
         # Skip common file extensions that aren't web pages
-        skip_extensions = {
-            '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg',
-            '.zip', '.rar', '.tar', '.gz', '.exe', '.dmg', '.pkg',
-            '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-            '.mp3', '.mp4', '.avi', '.mov', '.wmv', '.flv',
-            '.css', '.js', '.xml', '.json', '.rss', '.atom'
-        }
+        skip_extensions = SKIP_EXTENSIONS
         
         path_lower = parsed.path.lower()
         for ext in skip_extensions:
@@ -210,7 +288,7 @@ def spider_website(start_url, max_depth=2, same_domain_only=True, exclude_patter
     
     # Headers to appear more like a real browser
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': DEFAULT_USER_AGENT
     }
     
     print(f"\n🕷️  Starting spider crawl from: {start_url}")
@@ -243,7 +321,7 @@ def spider_website(start_url, max_depth=2, same_domain_only=True, exclude_patter
                 time.sleep(delay)
             
             # Make request
-            response = requests.get(current_url, headers=headers, timeout=10)
+            response = requests.get(current_url, headers=headers, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
             
             # Parse content
@@ -336,13 +414,31 @@ def sanitize_filename(filename):
     if not filename or filename.startswith('.'):
         filename = 'webscrape_output.html'
     # Limit filename length
-    if len(filename) > 100:
+    if len(filename) > MAX_FILENAME_LENGTH:
         name, ext = os.path.splitext(filename)
-        filename = name[:96] + ext
+        filename = name[:MAX_FILENAME_LENGTH-4] + ext
     return filename
 
 def generate_html_tree(url, links, emails, output_file):
-    """Generate an HTML file with a tree visualization of links and emails."""
+    """Generate an interactive HTML report with organized links and emails.
+    
+    Creates a professional HTML report featuring:
+    - Interactive tree structure organized by domain
+    - Collapsible domain groups with link counts
+    - Clickable links and mailto addresses
+    - Summary statistics and timestamps
+    - Responsive design for mobile and desktop
+    - XSS-safe content escaping
+    
+    Args:
+        url (str): Source URL that was scraped
+        links (list): List of links found on the page
+        emails (list): List of email addresses found
+        output_file (str): Path to save the HTML report
+        
+    Returns:
+        bool: True if file was created successfully, False otherwise
+    """
     
     # Organize links by domain for tree structure
     link_tree = {}
@@ -986,20 +1082,29 @@ Examples:
     # Spider-specific arguments
     parser.add_argument('--spider', action='store_true',
                        help='Enable spider mode to crawl multiple pages by following links')
-    parser.add_argument('--depth', type=int, default=2, 
-                       help='Maximum crawl depth for spider mode (default: 2)')
+    parser.add_argument('--depth', type=int, default=DEFAULT_SPIDER_DEPTH, 
+                       help=f'Maximum crawl depth for spider mode (default: {DEFAULT_SPIDER_DEPTH})')
     parser.add_argument('--same-domain', action='store_true', default=True,
                        help='Only follow links on the same domain (default: True)')
     parser.add_argument('--all-domains', action='store_true',
                        help='Allow following links to external domains (overrides --same-domain)')
     parser.add_argument('--exclude', nargs='*', default=[],
                        help='Regex patterns to exclude from crawling (e.g., "blog" "admin")')
-    parser.add_argument('--delay', type=float, default=1.0,
-                       help='Delay between requests in seconds (default: 1.0)')
+    parser.add_argument('--delay', type=float, default=DEFAULT_SPIDER_DELAY,
+                       help=f'Delay between requests in seconds (default: {DEFAULT_SPIDER_DELAY})')
     
     return parser.parse_args()
 
-def main():
+def main() -> None:
+    """Main entry point for the web scraping application.
+    
+    Handles command-line argument parsing, URL validation, and orchestrates
+    either single-page scraping or spider crawling based on user options.
+    Includes comprehensive error handling and optional HTML report generation.
+    
+    Raises:
+        SystemExit: On validation errors, network failures, or user interruption
+    """
     try:
         args = parse_arguments()
         
@@ -1064,10 +1169,10 @@ def main():
             
             # Add headers to appear more like a real browser
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                'User-Agent': DEFAULT_USER_AGENT
             }
             
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()  # Raise an exception for bad status codes
             
             soup = BeautifulSoup(response.text, 'html.parser')

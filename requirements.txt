@@ -1,0 +1,15 @@
+# Web scraping dependencies
+requests>=2.25.0
+beautifulsoup4>=4.10.0
+
+# Note: All other required modules are part of Python's standard library:
+# - re (regex patterns)
+# - urllib.parse (URL manipulation)
+# - sys (system operations)
+# - argparse (command-line parsing)
+# - datetime (timestamps)
+# - os (file operations)
+# - html (HTML escaping)
+# - time (delays)
+# - collections (deque)
+# - threading (future concurrency)
