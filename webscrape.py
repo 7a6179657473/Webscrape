@@ -8,14 +8,19 @@ This module provides functionality to:
 - Perform single-page scraping or multi-level spider crawling
 - Generate interactive HTML reports with professional styling
 - Handle security considerations and respectful crawling
+- Identify IDOR (Insecure Direct Object Reference) vulnerabilities
+- Detect potential injection points (SQL, XSS, Command, Path Traversal)
+- Analyze form inputs and hidden parameters
+- Extract AJAX endpoints from JavaScript code
+- Generate comprehensive security assessment reports
 
 Author: zayets @ https://github.com/7a6179657473
-Version: 2.1.0 - Security Hardened
+Version: 2.2.0 - Security Analysis Edition
 Python Version: 3.11+
 License: MIT
 """
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 __author__ = "zayets"
 __email__ = "zayets@github.com"
 __license__ = "MIT"
@@ -159,6 +164,419 @@ def extract_emails(soup, page_text):
             emails.add(email)
     
     return sorted(emails)
+
+def extract_input_parameters(soup, base_url):
+    """Extract URLs with query parameters and form inputs for IDOR/injection testing.
+    
+    This function identifies potential security testing targets by finding:
+    - URLs with query parameters (GET parameters)
+    - HTML forms with input fields
+    - Input fields with IDs, names, and types
+    - Hidden inputs that might contain sensitive data
+    - AJAX endpoints from JavaScript
+    
+    Args:
+        soup (BeautifulSoup): Parsed HTML content
+        base_url (str): Base URL for converting relative URLs to absolute
+        
+    Returns:
+        dict: Dictionary containing categorized input findings
+    """
+    results = {
+        'parameterized_urls': [],  # URLs with query parameters
+        'forms': [],              # Form elements with inputs
+        'input_fields': [],       # Individual input fields
+        'potential_ids': [],      # Parameters that might be IDORs
+        'ajax_endpoints': []      # Potential AJAX endpoints
+    }
+    
+    # Extract URLs with query parameters from links
+    for link in soup.find_all('a', href=True):
+        href = link['href'].strip()
+        if href and '?' in href:
+            absolute_url = urljoin(base_url, href)
+            parsed_url = urlparse(absolute_url)
+            if parsed_url.query:
+                # Parse query parameters
+                from urllib.parse import parse_qs
+                params = parse_qs(parsed_url.query)
+                
+                param_info = {
+                    'url': absolute_url,
+                    'parameters': {},
+                    'link_text': link.get_text(strip=True)[:100],  # Truncate for readability
+                    'potential_idor': False
+                }
+                
+                # Analyze each parameter
+                for param_name, param_values in params.items():
+                    param_info['parameters'][param_name] = param_values[0] if param_values else ''
+                    
+                    # Check if parameter might be an IDOR target
+                    if is_potential_idor_parameter(param_name, param_values[0] if param_values else ''):
+                        param_info['potential_idor'] = True
+                        results['potential_ids'].append({
+                            'url': absolute_url,
+                            'parameter': param_name,
+                            'value': param_values[0] if param_values else '',
+                            'context': link.get_text(strip=True)[:50]
+                        })
+                
+                results['parameterized_urls'].append(param_info)
+    
+    # Extract form elements and their inputs
+    for form in soup.find_all('form'):
+        form_info = {
+            'action': urljoin(base_url, form.get('action', '')),
+            'method': form.get('method', 'GET').upper(),
+            'inputs': [],
+            'has_file_upload': False,
+            'has_hidden_inputs': False,
+            'potential_vulnerabilities': []
+        }
+        
+        # Extract all input fields from the form
+        for input_elem in form.find_all(['input', 'textarea', 'select']):
+            input_info = {
+                'tag': input_elem.name,
+                'type': input_elem.get('type', 'text'),
+                'name': input_elem.get('name', ''),
+                'id': input_elem.get('id', ''),
+                'value': input_elem.get('value', ''),
+                'placeholder': input_elem.get('placeholder', ''),
+                'required': input_elem.has_attr('required'),
+                'pattern': input_elem.get('pattern', ''),
+                'max_length': input_elem.get('maxlength', ''),
+            }
+            
+            # Check for specific vulnerability indicators
+            if input_info['type'] == 'file':
+                form_info['has_file_upload'] = True
+                form_info['potential_vulnerabilities'].append('File Upload - Check for unrestricted file types')
+            
+            if input_info['type'] == 'hidden':
+                form_info['has_hidden_inputs'] = True
+                if input_info['value']:
+                    form_info['potential_vulnerabilities'].append(f'Hidden input with value: {input_info["name"]}={input_info["value"]}')
+            
+            # Check for potential IDOR parameters in form inputs
+            if is_potential_idor_parameter(input_info['name'], input_info['value']):
+                results['potential_ids'].append({
+                    'url': form_info['action'],
+                    'parameter': input_info['name'],
+                    'value': input_info['value'],
+                    'context': f'Form input ({input_info["type"]})'
+                })
+            
+            # Check for injection-prone input types
+            if input_info['type'] in ['text', 'search', 'url', 'email'] or input_elem.name == 'textarea':
+                vuln_type = identify_injection_vulnerability_type(input_info['name'], input_info['placeholder'])
+                if vuln_type:
+                    form_info['potential_vulnerabilities'].append(f'{input_info["name"]}: {vuln_type}')
+            
+            form_info['inputs'].append(input_info)
+            results['input_fields'].append({
+                'form_action': form_info['action'],
+                'form_method': form_info['method'],
+                **input_info
+            })
+        
+        results['forms'].append(form_info)
+    
+    # Look for potential AJAX endpoints in script tags
+    for script in soup.find_all('script'):
+        if script.string:
+            ajax_urls = extract_ajax_endpoints(script.string, base_url)
+            results['ajax_endpoints'].extend(ajax_urls)
+    
+    return results
+
+def is_potential_idor_parameter(param_name, param_value):
+    """Determine if a parameter might be vulnerable to IDOR attacks.
+    
+    Args:
+        param_name (str): Parameter name
+        param_value (str): Parameter value
+        
+    Returns:
+        bool: True if parameter might be IDOR-vulnerable
+    """
+    # Common parameter names that often indicate IDOR vulnerabilities
+    idor_indicators = [
+        'id', 'user_id', 'userid', 'uid', 'account_id', 'profile_id',
+        'doc_id', 'file_id', 'document_id', 'order_id', 'invoice_id',
+        'ticket_id', 'message_id', 'post_id', 'comment_id', 'item_id',
+        'product_id', 'customer_id', 'client_id', 'reference', 'ref',
+        'key', 'token', 'session_id', 'auth_id', 'admin_id', 'member_id'
+    ]
+    
+    param_lower = param_name.lower()
+    
+    # Check if parameter name matches common IDOR patterns
+    for indicator in idor_indicators:
+        if indicator in param_lower:
+            # Check if value looks like an ID (numeric, UUID, hash)
+            if param_value:
+                if (param_value.isdigit() or 
+                    re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', param_value) or
+                    re.match(r'^[a-f0-9]{32}$', param_value) or
+                    re.match(r'^[a-f0-9]{40}$', param_value)):
+                    return True
+            else:
+                # Parameter exists but no value - still potential
+                return True
+    
+    return False
+
+def identify_injection_vulnerability_type(field_name, placeholder):
+    """Identify potential injection vulnerability types based on field characteristics.
+    
+    Args:
+        field_name (str): Name of the input field
+        placeholder (str): Placeholder text of the field
+        
+    Returns:
+        str: Description of potential vulnerability type, or None
+    """
+    field_lower = field_name.lower()
+    placeholder_lower = placeholder.lower() if placeholder else ''
+    combined_text = f'{field_lower} {placeholder_lower}'
+    
+    vulnerabilities = []
+    
+    # SQL Injection indicators
+    sql_indicators = ['search', 'query', 'filter', 'where', 'select', 'username', 'login', 'email']
+    if any(indicator in combined_text for indicator in sql_indicators):
+        vulnerabilities.append('Potential SQL Injection')
+    
+    # XSS indicators
+    xss_indicators = ['comment', 'message', 'content', 'description', 'text', 'name', 'title']
+    if any(indicator in combined_text for indicator in xss_indicators):
+        vulnerabilities.append('Potential XSS')
+    
+    # Command Injection indicators
+    cmd_indicators = ['command', 'cmd', 'exec', 'system', 'shell', 'run']
+    if any(indicator in combined_text for indicator in cmd_indicators):
+        vulnerabilities.append('Potential Command Injection')
+    
+    # Path Traversal indicators
+    path_indicators = ['file', 'path', 'dir', 'folder', 'upload', 'download', 'include']
+    if any(indicator in combined_text for indicator in path_indicators):
+        vulnerabilities.append('Potential Path Traversal')
+    
+    # LDAP Injection indicators
+    ldap_indicators = ['ldap', 'dn', 'ou', 'cn', 'directory']
+    if any(indicator in combined_text for indicator in ldap_indicators):
+        vulnerabilities.append('Potential LDAP Injection')
+    
+    return ', '.join(vulnerabilities) if vulnerabilities else None
+
+def extract_ajax_endpoints(script_content, base_url):
+    """Extract potential AJAX endpoints from JavaScript code.
+    
+    Args:
+        script_content (str): JavaScript code content
+        base_url (str): Base URL for resolving relative URLs
+        
+    Returns:
+        list: List of potential AJAX endpoints with context
+    """
+    endpoints = []
+    
+    # Common AJAX patterns
+    ajax_patterns = [
+        r'\$\.ajax\([^)]*url[\s]*:[\s]*["\']([^"\'/]+(?:/[^"\']*)*)["\'\']',  # jQuery AJAX
+        r'\$\.get\([\s]*["\']([^"\'/]+(?:/[^"\']*)*)["\'\']',  # jQuery GET
+        r'\$\.post\([\s]*["\']([^"\'/]+(?:/[^"\']*)*)["\'\']',  # jQuery POST
+        r'fetch\([\s]*["\']([^"\'/]+(?:/[^"\']*)*)["\'\']',  # Fetch API
+        r'XMLHttpRequest[^)]*open\([^,]*,[\s]*["\']([^"\'/]+(?:/[^"\']*)*)["\'\']',  # XMLHttpRequest
+        r'axios\.[a-z]+\([\s]*["\']([^"\'/]+(?:/[^"\']*)*)["\'\']',  # Axios
+    ]
+    
+    for pattern in ajax_patterns:
+        matches = re.findall(pattern, script_content, re.IGNORECASE)
+        for match in matches:
+            absolute_url = urljoin(base_url, match)
+            if absolute_url not in [ep['url'] for ep in endpoints]:
+                endpoints.append({
+                    'url': absolute_url,
+                    'type': 'AJAX Endpoint',
+                    'method': 'Unknown',
+                    'context': 'JavaScript'
+                })
+    
+    return endpoints
+
+def analyze_security_findings(input_data, url):
+    """Analyze security findings and categorize vulnerabilities.
+    
+    Args:
+        input_data (dict): Input parameter data from extract_input_parameters
+        url (str): Source URL being analyzed
+        
+    Returns:
+        dict: Comprehensive security analysis results
+    """
+    analysis = {
+        'summary': {
+            'total_parameterized_urls': len(input_data['parameterized_urls']),
+            'total_forms': len(input_data['forms']),
+            'total_input_fields': len(input_data['input_fields']),
+            'potential_idor_params': len(input_data['potential_ids']),
+            'ajax_endpoints': len(input_data['ajax_endpoints']),
+            'risk_score': 0
+        },
+        'high_risk_findings': [],
+        'medium_risk_findings': [],
+        'low_risk_findings': [],
+        'recommendations': []
+    }
+    
+    # Analyze parameterized URLs for IDOR risks
+    for param_url in input_data['parameterized_urls']:
+        if param_url['potential_idor']:
+            finding = {
+                'type': 'Potential IDOR Vulnerability',
+                'severity': 'HIGH',
+                'url': param_url['url'],
+                'description': 'URL contains parameters that may be vulnerable to Insecure Direct Object Reference (IDOR) attacks',
+                'parameters': list(param_url['parameters'].keys()),
+                'test_suggestion': 'Try modifying ID parameters to access other users\' data'
+            }
+            analysis['high_risk_findings'].append(finding)
+            analysis['summary']['risk_score'] += 10
+        else:
+            # Regular parameterized URL - medium risk
+            finding = {
+                'type': 'Parameterized URL',
+                'severity': 'MEDIUM',
+                'url': param_url['url'],
+                'description': 'URL accepts parameters that could be tested for injection vulnerabilities',
+                'parameters': list(param_url['parameters'].keys()),
+                'test_suggestion': 'Test parameters for SQL injection, XSS, and other injection attacks'
+            }
+            analysis['medium_risk_findings'].append(finding)
+            analysis['summary']['risk_score'] += 3
+    
+    # Analyze forms for various vulnerabilities
+    for form in input_data['forms']:
+        # High-risk form findings
+        if form['has_file_upload']:
+            finding = {
+                'type': 'File Upload Form',
+                'severity': 'HIGH',
+                'url': form['action'],
+                'description': 'Form allows file uploads - potential for malicious file upload',
+                'method': form['method'],
+                'test_suggestion': 'Test file upload restrictions, try uploading malicious files (PHP, ASP, etc.)'
+            }
+            analysis['high_risk_findings'].append(finding)
+            analysis['summary']['risk_score'] += 8
+        
+        if form['has_hidden_inputs']:
+            finding = {
+                'type': 'Hidden Input Fields',
+                'severity': 'MEDIUM',
+                'url': form['action'],
+                'description': 'Form contains hidden inputs that might be manipulated',
+                'method': form['method'],
+                'test_suggestion': 'Examine hidden input values and test parameter manipulation'
+            }
+            analysis['medium_risk_findings'].append(finding)
+            analysis['summary']['risk_score'] += 4
+        
+        # Check for forms without CSRF protection indicators
+        has_csrf_token = any(inp['name'].lower() in ['csrf_token', '_token', 'authenticity_token', '_csrf'] 
+                           for inp in form['inputs'])
+        if not has_csrf_token and len(form['inputs']) > 1:
+            finding = {
+                'type': 'Potential CSRF Vulnerability',
+                'severity': 'MEDIUM',
+                'url': form['action'],
+                'description': 'Form appears to lack CSRF protection',
+                'method': form['method'],
+                'test_suggestion': 'Test form submission from external site to check CSRF protection'
+            }
+            analysis['medium_risk_findings'].append(finding)
+            analysis['summary']['risk_score'] += 5
+        
+        # Analyze individual form vulnerabilities
+        for vuln in form['potential_vulnerabilities']:
+            if any(high_risk in vuln.lower() for high_risk in ['command injection', 'file upload']):
+                severity = 'HIGH'
+                score = 7
+            elif any(med_risk in vuln.lower() for med_risk in ['sql injection', 'xss']):
+                severity = 'MEDIUM'  
+                score = 5
+            else:
+                severity = 'LOW'
+                score = 2
+            
+            finding = {
+                'type': 'Input Field Vulnerability',
+                'severity': severity,
+                'url': form['action'],
+                'description': vuln,
+                'method': form['method'],
+                'test_suggestion': f'Test this input field for {vuln.lower()}'
+            }
+            
+            if severity == 'HIGH':
+                analysis['high_risk_findings'].append(finding)
+            elif severity == 'MEDIUM':
+                analysis['medium_risk_findings'].append(finding)
+            else:
+                analysis['low_risk_findings'].append(finding)
+            
+            analysis['summary']['risk_score'] += score
+    
+    # Analyze AJAX endpoints
+    for endpoint in input_data['ajax_endpoints']:
+        finding = {
+            'type': 'AJAX Endpoint',
+            'severity': 'MEDIUM',
+            'url': endpoint['url'],
+            'description': 'JavaScript AJAX endpoint that may accept parameters',
+            'context': endpoint['context'],
+            'test_suggestion': 'Test endpoint directly for injection vulnerabilities and authentication bypass'
+        }
+        analysis['medium_risk_findings'].append(finding)
+        analysis['summary']['risk_score'] += 3
+    
+    # Generate recommendations based on findings
+    if analysis['summary']['potential_idor_params'] > 0:
+        analysis['recommendations'].append(
+            'Implement proper authorization checks for all object references to prevent IDOR attacks'
+        )
+    
+    if analysis['summary']['total_forms'] > 0:
+        analysis['recommendations'].extend([
+            'Implement CSRF protection for all state-changing forms',
+            'Validate and sanitize all user inputs server-side',
+            'Use parameterized queries to prevent SQL injection'
+        ])
+    
+    if any(form['has_file_upload'] for form in input_data['forms']):
+        analysis['recommendations'].extend([
+            'Restrict file upload types and validate file contents',
+            'Store uploaded files outside web root and scan for malware',
+            'Implement size limits and rate limiting for file uploads'
+        ])
+    
+    if analysis['summary']['ajax_endpoints'] > 0:
+        analysis['recommendations'].append(
+            'Ensure AJAX endpoints have proper authentication and authorization controls'
+        )
+    
+    # Add general security recommendations
+    analysis['recommendations'].extend([
+        'Implement Content Security Policy (CSP) headers',
+        'Use HTTPS for all sensitive data transmission',
+        'Implement proper session management and timeout controls',
+        'Regular security testing and vulnerability assessments'
+    ])
+    
+    return analysis
 
 def validate_url(url):
     """Enhanced URL validation with comprehensive SSRF protection.
@@ -420,13 +838,19 @@ def spider_website(start_url, max_depth=2, same_domain_only=True, exclude_patter
             page_links = extract_page_links_only(soup, current_url)
             emails = extract_emails(soup, response.text)
             
+            # Extract security-relevant information if security mode is enabled
+            security_data = None
+            if hasattr(spider_website, '_security_mode') and spider_website._security_mode:
+                security_data = extract_input_parameters(soup, current_url)
+            
             # Store page data
             pages_data[current_url] = {
                 'links': all_links,
                 'emails': emails,
                 'depth': depth,
                 'title': soup.find('title').get_text(strip=True) if soup.find('title') else 'No title',
-                'status_code': response.status_code
+                'status_code': response.status_code,
+                'security_data': security_data
             }
             
             visited_urls.add(current_url)
@@ -508,7 +932,7 @@ def sanitize_filename(filename):
         filename = name[:MAX_FILENAME_LENGTH-4] + ext
     return filename
 
-def generate_html_tree(url, links, emails, output_file):
+def generate_html_tree(url, links, emails, output_file, security_info=None):
     """Generate an interactive HTML report with organized links and emails.
     
     Creates a professional HTML report featuring:
@@ -800,7 +1224,98 @@ def generate_html_tree(url, links, emails, output_file):
         </div>
 """
     
-    html_content += """
+    # Add security section if security analysis was performed
+    if security_info:
+        security_analysis = security_info['security_analysis']
+        security_data = security_info['security_data']
+        
+        html_content += f"""
+        <div class="section">
+            <h2 class="section-title">🔒 Security Analysis</h2>
+            <div class="summary">
+                <div class="summary-item">
+                    <div class="summary-number">{security_analysis['summary']['risk_score']}</div>
+                    <div class="summary-label">Risk Score</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: #dc3545;">{len(security_analysis['high_risk_findings'])}</div>
+                    <div class="summary-label">High Risk</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: #fd7e14;">{len(security_analysis['medium_risk_findings'])}</div>
+                    <div class="summary-label">Medium Risk</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: #198754;">{len(security_analysis['low_risk_findings'])}</div>
+                    <div class="summary-label">Low Risk</div>
+                </div>
+            </div>
+        """
+        
+        # Add high risk findings
+        if security_analysis['high_risk_findings']:
+            html_content += """
+            <h3 style="color: #dc3545; margin-top: 30px;">🚨 High Risk Findings</h3>
+            <div class="email-list">
+            """
+            for finding in security_analysis['high_risk_findings']:
+                html_content += f"""
+                <div class="email-item" style="border-left: 4px solid #dc3545;">
+                    <strong>{html.escape(finding['type'])}</strong><br>
+                    <small style="color: #666;">{html.escape(finding['description'])}</small><br>
+                    <small style="color: #007bff;">URL: <a href="{html.escape(finding['url'])}" target="_blank">{html.escape(finding['url'])}</a></small><br>
+                    <small style="color: #28a745;">Test: {html.escape(finding['test_suggestion'])}</small>
+                </div>
+                """
+            html_content += "</div>"
+        
+        # Add medium risk findings (limited)
+        if security_analysis['medium_risk_findings']:
+            html_content += """
+            <h3 style="color: #fd7e14; margin-top: 30px;">⚠️ Medium Risk Findings</h3>
+            <div class="email-list">
+            """
+            for finding in security_analysis['medium_risk_findings'][:10]:  # Limit to 10
+                html_content += f"""
+                <div class="email-item" style="border-left: 4px solid #fd7e14;">
+                    <strong>{html.escape(finding['type'])}</strong><br>
+                    <small style="color: #666;">{html.escape(finding['description'])}</small><br>
+                    <small style="color: #007bff;">URL: <a href="{html.escape(finding['url'])}" target="_blank">{html.escape(finding['url'])}</a></small><br>
+                    <small style="color: #28a745;">Test: {html.escape(finding['test_suggestion'])}</small>
+                </div>
+                """
+            html_content += "</div>"
+        
+        # Add IDOR findings specifically
+        if security_data['potential_ids']:
+            html_content += """
+            <h3 style="color: #6f42c1; margin-top: 30px;">🎯 Potential IDOR Parameters</h3>
+            <div class="email-list">
+            """
+            for idor in security_data['potential_ids']:
+                html_content += f"""
+                <div class="email-item" style="border-left: 4px solid #6f42c1;">
+                    <strong>Parameter: {html.escape(idor['parameter'])}</strong><br>
+                    <small style="color: #666;">Value: {html.escape(idor['value'])}</small><br>
+                    <small style="color: #007bff;">URL: <a href="{html.escape(idor['url'])}" target="_blank">{html.escape(idor['url'])}</a></small><br>
+                    <small style="color: #666;">Context: {html.escape(idor['context'])}</small>
+                </div>
+                """
+            html_content += "</div>"
+        
+        # Add recommendations
+        if security_analysis['recommendations']:
+            html_content += """
+            <h3 style="color: #17a2b8; margin-top: 30px;">📝 Security Recommendations</h3>
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #17a2b8;">
+            """
+            for i, rec in enumerate(security_analysis['recommendations'][:10], 1):  # Limit to 10
+                html_content += f"<p style='margin: 5px 0;'>{i}. {html.escape(rec)}</p>"
+            html_content += "</div>"
+        
+        html_content += "</div>"  # Close security section
+    
+        html_content += """
     </div>
 </body>
 </html>
@@ -815,7 +1330,7 @@ def generate_html_tree(url, links, emails, output_file):
         print(f"Error writing HTML file")
         return False
 
-def generate_spider_html_report(spider_results, output_file):
+def generate_spider_html_report(spider_results, output_file, include_security=False):
     """Generate an HTML report for spider crawling results."""
     pages_data = spider_results['pages']
     summary = spider_results['summary']
@@ -1132,9 +1647,86 @@ def generate_spider_html_report(spider_results, output_file):
 """
         
         html_content += """
-            </div>
         </div>
 """
+    
+    # Add security section if security analysis was performed
+    if include_security and spider_results.get('security_analysis'):
+        security_analysis = spider_results['security_analysis']
+        
+        html_content += f"""
+        <div class="section">
+            <h2 class="section-title">🔒 Security Analysis</h2>
+            <div class="summary">
+                <div class="summary-item">
+                    <div class="summary-number">{security_analysis['summary']['risk_score']}</div>
+                    <div class="summary-label">Risk Score</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: #dc3545;">{len(security_analysis['high_risk_findings'])}</div>
+                    <div class="summary-label">High Risk</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: #fd7e14;">{len(security_analysis['medium_risk_findings'])}</div>
+                    <div class="summary-label">Medium Risk</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: #198754;">{len(security_analysis['low_risk_findings'])}</div>
+                    <div class="summary-label">Low Risk</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: #6f42c1;">{security_analysis['summary']['potential_idor_params']}</div>
+                    <div class="summary-label">Potential IDORs</div>
+                </div>
+            </div>
+
+        """
+        
+        # Add high risk findings
+        if security_analysis['high_risk_findings']:
+            html_content += """
+            <h3 style="color: #dc3545; margin-top: 30px;">🚨 High Risk Findings</h3>
+            <div class="email-list">
+            """
+            for finding in security_analysis['high_risk_findings']:
+                html_content += f"""
+                <div class="email-item" style="border-left: 4px solid #dc3545;">
+                    <strong>{html.escape(finding['type'])}</strong><br>
+                    <small style="color: #666;">{html.escape(finding['description'])}</small><br>
+                    <small style="color: #007bff;">URL: <a href="{html.escape(finding['url'])}" target="_blank">{html.escape(finding['url'])}</a></small><br>
+                    <small style="color: #28a745;">Test: {html.escape(finding['test_suggestion'])}</small>
+                </div>
+                """
+            html_content += "</div>"
+        
+        # Add medium risk findings (limited to first 15 for spider report)
+        if security_analysis['medium_risk_findings']:
+            html_content += """
+            <h3 style="color: #fd7e14; margin-top: 30px;">⚠️ Medium Risk Findings (Top 15)</h3>
+            <div class="email-list">
+            """
+            for finding in security_analysis['medium_risk_findings'][:15]:
+                html_content += f"""
+                <div class="email-item" style="border-left: 4px solid #fd7e14;">
+                    <strong>{html.escape(finding['type'])}</strong><br>
+                    <small style="color: #666;">{html.escape(finding['description'])}</small><br>
+                    <small style="color: #007bff;">URL: <a href="{html.escape(finding['url'])}" target="_blank">{html.escape(finding['url'])}</a></small><br>
+                    <small style="color: #28a745;">Test: {html.escape(finding['test_suggestion'])}</small>
+                </div>
+                """
+            html_content += "</div>"
+        
+        # Add recommendations
+        if security_analysis['recommendations']:
+            html_content += """
+            <h3 style="color: #17a2b8; margin-top: 30px;">📝 Security Recommendations</h3>
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #17a2b8;">
+            """
+            for i, rec in enumerate(security_analysis['recommendations'][:12], 1):  # Limit to 12
+                html_content += f"<p style='margin: 5px 0;'>{i}. {html.escape(rec)}</p>"
+            html_content += "</div>"
+        
+        html_content += "</div>"  # Close security section
     
     html_content += """
     </div>
@@ -1169,6 +1761,11 @@ Examples:
   python webscrape.py https://example.com --spider --depth 3 --same-domain  # Stay on same domain
   python webscrape.py https://example.com --spider --exclude "blog" "admin"  # Exclude patterns
   python webscrape.py https://example.com --spider --delay 2.0 -o spider_results.html  # Custom delay
+  
+  # Security analysis
+  python webscrape.py https://example.com --security  # Single page security scan
+  python webscrape.py https://example.com --spider --security --depth 3  # Spider with security analysis
+  python webscrape.py https://example.com --security -o security_report.html  # Save security findings
 """
     )
     
@@ -1189,6 +1786,10 @@ Examples:
                        help='Regex patterns to exclude from crawling (e.g., "blog" "admin")')
     parser.add_argument('--delay', type=float, default=DEFAULT_SPIDER_DELAY,
                        help=f'Delay between requests in seconds (default: {DEFAULT_SPIDER_DELAY})')
+    
+    # Security-specific arguments
+    parser.add_argument('--security', action='store_true',
+                       help='Enable security analysis mode to identify IDOR and injection vulnerabilities')
     
     return parser.parse_args()
 
@@ -1230,6 +1831,12 @@ def main() -> None:
             print(f"Same domain only: {same_domain_only}")
             print(f"Exclude patterns: {args.exclude if args.exclude else 'None'}")
             print(f"Request delay: {args.delay}s")
+            if args.security:
+                print(f"🔒 Security analysis: ENABLED")
+            
+            # Set security mode flag for spider function
+            if args.security:
+                spider_website._security_mode = True
             
             # Run spider crawl
             spider_results = spider_website(
@@ -1239,6 +1846,35 @@ def main() -> None:
                 exclude_patterns=args.exclude,
                 delay=args.delay
             )
+            
+            # Perform security analysis if enabled
+            if args.security:
+                print(f"\n🔒 PERFORMING SECURITY ANALYSIS...")
+                # Aggregate all security data from all pages
+                all_security_data = {
+                    'parameterized_urls': [],
+                    'forms': [],
+                    'input_fields': [],
+                    'potential_ids': [],
+                    'ajax_endpoints': []
+                }
+                
+                for page_url, page_data in spider_results['pages'].items():
+                    if page_data.get('security_data'):
+                        for key in all_security_data.keys():
+                            all_security_data[key].extend(page_data['security_data'].get(key, []))
+                
+                # Analyze security findings
+                security_analysis = analyze_security_findings(all_security_data, url)
+                spider_results['security_analysis'] = security_analysis
+                
+                # Print security summary
+                print(f"\n🔒 SECURITY ANALYSIS RESULTS:")
+                print(f"  📊 Risk Score: {security_analysis['summary']['risk_score']}")
+                print(f"  🚨 High Risk Findings: {len(security_analysis['high_risk_findings'])}")
+                print(f"  ⚠️  Medium Risk Findings: {len(security_analysis['medium_risk_findings'])}")
+                print(f"  ℹ️  Low Risk Findings: {len(security_analysis['low_risk_findings'])}")
+                print(f"  🎯 Potential IDOR Parameters: {security_analysis['summary']['potential_idor_params']}")
             
             # Generate HTML output if requested
             if args.output:
@@ -1253,11 +1889,13 @@ def main() -> None:
                 print(f"\n=== GENERATING SPIDER HTML REPORT ===")
                 print(f"Saving results to: {output_file}")
                 
-                if generate_spider_html_report(spider_results, output_file):
-                    print(f"✅ Spider HTML report saved successfully to: {os.path.abspath(output_file)}")
+                if generate_spider_html_report(spider_results, output_file, args.security):
+                    print(f"\u2705 Spider HTML report saved successfully to: {os.path.abspath(output_file)}")
                     print(f"Open the file in your browser to view the interactive results.")
+                    if args.security:
+                        print(f"\u2139️  Security findings included in report")
                 else:
-                    print("❌ Failed to save spider HTML report.")
+                    print("\u274c Failed to save spider HTML report.")
             
         else:
             # Single page mode: original functionality
@@ -1296,10 +1934,43 @@ def main() -> None:
             else:
                 print("No email addresses found on this page.")
             
+            # Security analysis if enabled
+            security_analysis = None
+            if args.security:
+                print("\n=== SECURITY ANALYSIS ===")
+                security_data = extract_input_parameters(soup, url)
+                security_analysis = analyze_security_findings(security_data, url)
+                
+                print(f"Security findings:")
+                print(f"  🎯 Parameterized URLs: {len(security_data['parameterized_urls'])}")
+                print(f"  📋 Forms found: {len(security_data['forms'])}")
+                print(f"  📝 Input fields: {len(security_data['input_fields'])}")
+                print(f"  🔍 Potential IDOR params: {len(security_data['potential_ids'])}")
+                print(f"  🌐 AJAX endpoints: {len(security_data['ajax_endpoints'])}")
+                print(f"  📊 Risk score: {security_analysis['summary']['risk_score']}")
+                
+                # Show high-risk findings
+                if security_analysis['high_risk_findings']:
+                    print(f"\n🚨 HIGH RISK FINDINGS:")
+                    for i, finding in enumerate(security_analysis['high_risk_findings'], 1):
+                        print(f"  {i}. {finding['type']}: {finding['description']}")
+                        print(f"     URL: {finding['url']}")
+                        print(f"     Test: {finding['test_suggestion']}")
+                
+                # Show medium-risk findings (limit to first 5)
+                if security_analysis['medium_risk_findings']:
+                    print(f"\n⚠️  MEDIUM RISK FINDINGS (showing first 5):")
+                    for i, finding in enumerate(security_analysis['medium_risk_findings'][:5], 1):
+                        print(f"  {i}. {finding['type']}: {finding['description']}")
+                        print(f"     URL: {finding['url']}")
+            
             # Summary
             print(f"\n=== SUMMARY ===")
             print(f"Total links found: {len(links)}")
             print(f"Total emails found: {len(emails)}")
+            if args.security and security_analysis:
+                print(f"Security risk score: {security_analysis['summary']['risk_score']}")
+                print(f"High risk findings: {len(security_analysis['high_risk_findings'])}")
             
             # Generate HTML output if requested
             if args.output:
@@ -1314,11 +1985,19 @@ def main() -> None:
                 print(f"\n=== GENERATING HTML OUTPUT ===")
                 print(f"Saving results to: {output_file}")
                 
-                if generate_html_tree(url, links, emails, output_file):
-                    print(f"✅ HTML report saved successfully to: {os.path.abspath(output_file)}")
+                # Create security data for HTML report if security mode was enabled
+                html_security_data = None
+                if args.security and security_analysis:
+                    html_security_data = {
+                        'security_data': security_data,
+                        'security_analysis': security_analysis
+                    }
+                
+                if generate_html_tree(url, links, emails, output_file, html_security_data):
+                    print(f"\u2705 HTML report saved successfully to: {os.path.abspath(output_file)}")
                     print(f"Open the file in your browser to view the interactive results.")
                 else:
-                    print("❌ Failed to save HTML report.")
+                    print("\u274c Failed to save HTML report.")
         
     except requests.exceptions.RequestException as e:
         print(f"Error fetching the webpage: {type(e).__name__}")
