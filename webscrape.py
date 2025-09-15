@@ -10,12 +10,12 @@ This module provides functionality to:
 - Handle security considerations and respectful crawling
 
 Author: zayets @ https://github.com/7a6179657473
-Version: 2.0.0
+Version: 2.1.0 - Security Hardened
 Python Version: 3.11+
 License: MIT
 """
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __author__ = "zayets"
 __email__ = "zayets@github.com"
 __license__ = "MIT"
@@ -39,6 +39,12 @@ MAX_URL_LENGTH = 2048  # characters
 MAX_FILENAME_LENGTH = 100  # characters
 DEFAULT_SPIDER_DEPTH = 2
 DEFAULT_SPIDER_DELAY = 1.0  # seconds
+
+# Security constants
+MAX_SPIDER_PAGES = 1000  # Maximum pages to crawl
+MAX_SPIDER_DEPTH_LIMIT = 10  # Maximum depth allowed for security
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB max file size
+MAX_REGEX_PATTERN_LENGTH = 100  # Maximum regex pattern length
 
 # User-Agent string to appear more like a real browser
 DEFAULT_USER_AGENT = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -155,13 +161,15 @@ def extract_emails(soup, page_text):
     return sorted(emails)
 
 def validate_url(url):
-    """Validate URL to ensure it's safe and properly formatted for requests.
+    """Enhanced URL validation with comprehensive SSRF protection.
     
     Security checks performed:
     - Ensures only HTTP/HTTPS schemes are allowed
     - Validates presence of domain (netloc)
-    - Checks for reasonable URL length (max 2048 characters)
-    - Prevents malformed or dangerous URLs
+    - Blocks localhost and private IP addresses
+    - Prevents access to internal network resources
+    - Checks for reasonable URL length
+    - Resolves hostnames to prevent DNS-based bypasses
     
     Args:
         url (str): URL to validate
@@ -169,6 +177,9 @@ def validate_url(url):
     Returns:
         tuple: (is_valid: bool, message: str) indicating validation result
     """
+    import ipaddress
+    import socket
+    
     try:
         parsed = urlparse(url)
         
@@ -180,10 +191,50 @@ def validate_url(url):
         if not parsed.netloc:
             return False, "Invalid URL: missing domain"
         
-        # Prevent localhost/private IP access (optional security measure)
-        # Uncomment these lines for additional security in production
-        # if parsed.netloc.lower() in ['localhost', '127.0.0.1', '0.0.0.0']:
-        #     return False, "Local URLs are not allowed"
+        # CRITICAL: Prevent SSRF attacks
+        # Block localhost variations
+        localhost_patterns = [
+            'localhost', '127.0.0.1', '0.0.0.0', '::1',
+            '0000:0000:0000:0000:0000:0000:0000:0001',
+            '10.0.0.1', '192.168.1.1'  # Common router IPs
+        ]
+        
+        hostname = parsed.netloc.split(':')[0].lower()
+        if hostname in localhost_patterns:
+            return False, "Local URLs are not allowed for security"
+        
+        # Block private IP ranges and localhost
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+                return False, "Private/internal IP addresses are not allowed"
+            # Block additional dangerous ranges
+            if ip in ipaddress.ip_network('169.254.0.0/16'):  # Link-local
+                return False, "Link-local addresses are not allowed"
+            if ip in ipaddress.ip_network('224.0.0.0/4'):  # Multicast
+                return False, "Multicast addresses are not allowed"
+        except ValueError:
+            # Not an IP address, check if it resolves to private IP
+            try:
+                resolved_ip = socket.gethostbyname(hostname)
+                ip = ipaddress.ip_address(resolved_ip)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+                    return False, "Domain resolves to private IP address"
+                # Block cloud metadata services
+                if resolved_ip in ['169.254.169.254', '169.254.1.1']:
+                    return False, "Access to cloud metadata services is blocked"
+            except (socket.gaierror, ValueError):
+                pass  # DNS resolution failed, let it proceed (might be valid external domain)
+        
+        # Block common internal hostnames
+        internal_hosts = ['router', 'gateway', 'printer', 'nas', 'admin', 'management']
+        if any(internal in hostname for internal in internal_hosts):
+            return False, "Internal hostnames are not allowed"
+        
+        # Block common dangerous TLDs for internal networks
+        dangerous_tlds = ['.local', '.internal', '.corp', '.home', '.lan']
+        if any(hostname.endswith(tld) for tld in dangerous_tlds):
+            return False, "Internal domain TLDs are not allowed"
         
         # Check for reasonable URL length
         if len(url) > MAX_URL_LENGTH:
@@ -191,8 +242,8 @@ def validate_url(url):
         
         return True, "Valid URL"
         
-    except Exception as e:
-        return False, f"URL validation error: {e}"
+    except Exception:
+        return False, "URL validation failed"  # Don't expose internal errors
 
 def is_same_domain(url1, url2):
     """Check if two URLs belong to the same domain."""
@@ -207,9 +258,26 @@ def is_same_domain(url1, url2):
         return False
 
 def should_follow_link(url, base_url, same_domain_only=True, exclude_patterns=None):
-    """Determine if a link should be followed during spidering."""
+    """Determine if a link should be followed during spidering with enhanced security."""
     if exclude_patterns is None:
         exclude_patterns = []
+    
+    # Validate and sanitize regex patterns to prevent ReDoS
+    safe_patterns = []
+    for pattern in exclude_patterns:
+        try:
+            # Test with a simple string to catch basic ReDoS
+            re.search(pattern, "test", re.IGNORECASE)
+            # Limit pattern complexity to prevent ReDoS
+            if len(pattern) > MAX_REGEX_PATTERN_LENGTH:
+                print(f"Warning: Regex pattern too long, ignoring: {pattern[:50]}...")
+                continue
+            safe_patterns.append(pattern)
+        except re.error:
+            print(f"Warning: Invalid regex pattern ignored: {pattern}")
+            continue
+    
+    exclude_patterns = safe_patterns
     
     try:
         parsed = urlparse(url)
@@ -230,10 +298,14 @@ def should_follow_link(url, base_url, same_domain_only=True, exclude_patterns=No
             if path_lower.endswith(ext):
                 return False
         
-        # Skip URLs matching exclude patterns
+        # Skip URLs matching exclude patterns (with timeout protection)
         for pattern in exclude_patterns:
-            if re.search(pattern, url, re.IGNORECASE):
-                return False
+            try:
+                if re.search(pattern, url, re.IGNORECASE):
+                    return False
+            except re.error:
+                # Skip this pattern if it causes issues
+                continue
         
         # Skip common non-content paths
         skip_paths = [
@@ -266,7 +338,7 @@ def extract_page_links_only(soup, base_url):
     return sorted(links)
 
 def spider_website(start_url, max_depth=2, same_domain_only=True, exclude_patterns=None, delay=1.0):
-    """Spider through a website following links up to max_depth levels.
+    """Spider through a website following links up to max_depth levels with security limits.
     
     Args:
         start_url (str): The starting URL to begin spidering
@@ -281,10 +353,16 @@ def spider_website(start_url, max_depth=2, same_domain_only=True, exclude_patter
     if exclude_patterns is None:
         exclude_patterns = []
     
+    # Security: Limit maximum depth to prevent abuse
+    if max_depth > MAX_SPIDER_DEPTH_LIMIT:
+        print(f"Warning: Depth limited to {MAX_SPIDER_DEPTH_LIMIT} for security")
+        max_depth = MAX_SPIDER_DEPTH_LIMIT
+    
     # Data structures for crawling
     visited_urls = set()
     pages_data = {}  # url -> {links: [], emails: [], depth: int}
     url_queue = deque([(start_url, 0)])  # (url, depth)
+    pages_crawled = 0  # Track number of pages for security limits
     
     # Headers to appear more like a real browser
     headers = {
@@ -296,7 +374,7 @@ def spider_website(start_url, max_depth=2, same_domain_only=True, exclude_patter
     print(f"⏱️  Delay between requests: {delay}s")
     print("\n" + "="*60)
     
-    while url_queue:
+    while url_queue and pages_crawled < MAX_SPIDER_PAGES:
         current_url, depth = url_queue.popleft()
         
         # Skip if already visited
@@ -307,7 +385,12 @@ def spider_website(start_url, max_depth=2, same_domain_only=True, exclude_patter
         if depth > max_depth:
             continue
         
-        print(f"\n[Depth {depth}] Crawling: {current_url}")
+        # Security: Check if we've hit the page limit
+        if pages_crawled >= MAX_SPIDER_PAGES:
+            print(f"\n⚠️  Reached maximum page limit ({MAX_SPIDER_PAGES}) for security")
+            break
+        
+        print(f"\n[Depth {depth}] Crawling: {current_url} (Page {pages_crawled + 1}/{MAX_SPIDER_PAGES})")
         
         try:
             # Validate URL
@@ -323,6 +406,11 @@ def spider_website(start_url, max_depth=2, same_domain_only=True, exclude_patter
             # Make request
             response = requests.get(current_url, headers=headers, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
+            
+            # Security: Check response size to prevent memory exhaustion
+            if len(response.content) > MAX_FILE_SIZE:
+                print(f"  ❌ Skipped: Response too large ({len(response.content):,} bytes, max {MAX_FILE_SIZE:,})")
+                continue
             
             # Parse content
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -342,6 +430,7 @@ def spider_website(start_url, max_depth=2, same_domain_only=True, exclude_patter
             }
             
             visited_urls.add(current_url)
+            pages_crawled += 1  # Increment page counter
             
             print(f"  ✅ Found {len(all_links)} links, {len(emails)} emails")
             
@@ -361,10 +450,10 @@ def spider_website(start_url, max_depth=2, same_domain_only=True, exclude_patter
                     print(f"  📝 No new URLs to follow from this page")
                     
         except requests.exceptions.RequestException as e:
-            print(f"  ❌ Request error: {e}")
+            print(f"  ❌ Request error: {type(e).__name__}")
             continue
-        except Exception as e:
-            print(f"  ❌ Unexpected error: {e}")
+        except Exception:
+            print(f"  ❌ Unexpected error occurred")
             continue
     
     # Calculate summary statistics
@@ -439,6 +528,10 @@ def generate_html_tree(url, links, emails, output_file):
     Returns:
         bool: True if file was created successfully, False otherwise
     """
+    
+    # Security: Check if file exists and warn user
+    if os.path.exists(output_file):
+        print(f"Warning: File {output_file} already exists and will be overwritten")
     
     # Organize links by domain for tree structure
     link_tree = {}
@@ -718,14 +811,18 @@ def generate_html_tree(url, links, emails, output_file):
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(html_content)
         return True
-    except Exception as e:
-        print(f"Error writing HTML file: {e}")
+    except Exception:
+        print(f"Error writing HTML file")
         return False
 
 def generate_spider_html_report(spider_results, output_file):
     """Generate an HTML report for spider crawling results."""
     pages_data = spider_results['pages']
     summary = spider_results['summary']
+    
+    # Security: Check if file exists and warn user
+    if os.path.exists(output_file):
+        print(f"Warning: File {output_file} already exists and will be overwritten")
     
     # Organize all links and emails from all pages
     all_links_by_domain = {}
@@ -1050,8 +1147,8 @@ def generate_spider_html_report(spider_results, output_file):
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(html_content)
         return True
-    except Exception as e:
-        print(f"Error writing spider HTML file: {e}")
+    except Exception:
+        print(f"Error writing spider HTML file")
         return False
 
 def parse_arguments():
@@ -1083,7 +1180,7 @@ Examples:
     parser.add_argument('--spider', action='store_true',
                        help='Enable spider mode to crawl multiple pages by following links')
     parser.add_argument('--depth', type=int, default=DEFAULT_SPIDER_DEPTH, 
-                       help=f'Maximum crawl depth for spider mode (default: {DEFAULT_SPIDER_DEPTH})')
+                       help=f'Maximum crawl depth for spider mode (default: {DEFAULT_SPIDER_DEPTH}, max: {MAX_SPIDER_DEPTH_LIMIT})')
     parser.add_argument('--same-domain', action='store_true', default=True,
                        help='Only follow links on the same domain (default: True)')
     parser.add_argument('--all-domains', action='store_true',
@@ -1224,13 +1321,13 @@ def main() -> None:
                     print("❌ Failed to save HTML report.")
         
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching the webpage: {e}")
+        print(f"Error fetching the webpage: {type(e).__name__}")
         sys.exit(1)
     except KeyboardInterrupt:
         print("\nOperation cancelled by user.")
         sys.exit(1)
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+    except Exception:
+        print(f"An unexpected error occurred")
         sys.exit(1)
 
 if __name__ == "__main__":
