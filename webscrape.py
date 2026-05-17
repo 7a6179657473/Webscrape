@@ -38,6 +38,29 @@ import time
 from collections import deque
 import threading
 
+# Message of the Day
+def show_message_of_day():
+    """Display message of the day with current date and creator info."""
+    from datetime import datetime
+    current_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    print("="*60)
+    print(f"📅 Message of the Day - {current_date}")
+    print("="*60)
+    print("🕷️  Webscrape - Advanced Web Scraping & Security Analysis Tool")
+    print("💼 Made by Zayets")
+    print("🔗 GitHub: https://github.com/7a6179657473")
+    print("🚀 Version: 2.2.0 - Security Analysis Edition")
+    print("")
+    print("✨ Features:")
+    print("   • Link & Email Extraction")
+    print("   • Spider Crawling with Depth Control")
+    print("   • Security Vulnerability Analysis")
+    print("   • Interactive HTML Reports")
+    print("   • IDOR & Injection Detection")
+    print("="*60)
+    print("")
+
 # Constants for configuration
 DEFAULT_TIMEOUT = 10  # seconds
 MAX_URL_LENGTH = 2048  # characters
@@ -1803,6 +1826,9 @@ def main() -> None:
     Raises:
         SystemExit: On validation errors, network failures, or user interruption
     """
+    # Show message of the day
+    show_message_of_day()
+    
     try:
         args = parse_arguments()
         
