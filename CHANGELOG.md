@@ -2,6 +2,24 @@
 
 All notable changes to the Webscrape project.
 
+## [Unreleased]
+
+### Added
+- **`--allow-private` flag**: Opt-in mode to scrape authorized private/internal
+  targets (lab, CTF, or internal hosts on `10.x`/`172.16.x`/`192.168.x` ranges).
+  The SSRF guard in `validate_url()` remains **on by default**; the flag only
+  relaxes the private/loopback/link-local IP, internal-hostname/TLD, and
+  DNS-resolves-to-private checks. Scheme (`http`/`https` only), host, and
+  URL-length validation stay enforced. Threaded into both the single-URL and
+  spider validation paths.
+  - Usage: `python webscrape.py http://10.10.10.5/ --allow-private`
+
+### Documentation
+- README.md: documented `--allow-private` in the Command Line Options table and
+  added a "Scanning Internal / Lab Targets" usage section.
+- SECURITY_FEATURES.md: documented the default SSRF protection and the
+  `--allow-private` opt-out.
+
 ## [2.0.0] - 2025-09-15
 
 ### Major Updates & Refactoring

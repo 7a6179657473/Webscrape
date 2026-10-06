@@ -158,6 +158,19 @@ python webscrape.py https://example.com --security -o security_report.html
 python webscrape.py https://webapp.com --spider --security --depth 4 --exclude "logout" "static" --delay 2.0 -o full_assessment.html
 ```
 
+### Scanning Internal / Lab Targets
+
+`validate_url()` enforces SSRF protection by default and rejects private IPs,
+loopback/link-local addresses, internal hostnames/TLDs, and any domain that
+resolves to a private IP. For an **authorized** lab/CTF host on an internal
+range, use `--allow-private` to opt out of those checks (scheme and host
+validation still apply, so a bare IP is rejected — include `http://`):
+
+```bash
+python webscrape.py http://10.10.10.5/ --allow-private
+python webscrape.py http://10.10.10.5/ --spider --allow-private --depth 2
+```
+
 ### Installing Dependencies
 Install dependencies from requirements.txt:
 ```bash

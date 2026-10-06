@@ -136,6 +136,37 @@ python webscrape.py https://app.com --spider --security --exclude "logout" "stat
 python webscrape.py https://webapp.com --spider --security --depth 3 --exclude "api/docs" "help" --delay 1.5
 ```
 
+## SSRF Protection and Internal Targets
+
+URL validation includes SSRF protection that is **on by default**. The tool
+rejects requests to:
+
+- Private IPv4 ranges, loopback, and link-local addresses
+- Cloud metadata endpoints (e.g. `169.254.169.254`)
+- `localhost` variants and common internal hostnames (`router`, `gateway`, `admin`, ...)
+- Internal TLDs (`.local`, `.internal`, `.corp`, `.home`, `.lan`)
+- Any domain that **resolves** to a private IP (DNS-rebinding/`/etc/hosts` bypasses)
+
+Only HTTP/HTTPS schemes and URLs with a valid host are accepted, so a bare IP
+without a scheme is also rejected.
+
+### `--allow-private` (authorized internal/lab targets)
+
+For an **authorized** lab, CTF, or internal host on a private range, pass
+`--allow-private` to opt out of the private/internal checks:
+
+```bash
+python webscrape.py http://10.10.10.5/ --allow-private
+python webscrape.py http://10.10.10.5/ --spider --allow-private --depth 2
+```
+
+The opt-out only relaxes the private/internal IP and hostname checks. Scheme
+(`http`/`https` only), host presence, and URL-length validation stay enforced,
+so a bare IP such as `10.10.10.5` is still rejected — use `http://10.10.10.5/`.
+
+Only use `--allow-private` against systems you own or are explicitly
+authorized to test.
+
 ## Important Notes
 
 - **Ethical Usage**: Only use these features on websites you own or have explicit permission to test
