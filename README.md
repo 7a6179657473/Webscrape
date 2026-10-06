@@ -125,6 +125,31 @@ python webscrape.py https://webapp.com --spider --security --depth 4 --exclude "
 python webscrape.py https://target.com --spider --security --depth 2 --delay 2.0 -o bounty_scan.html
 ```
 
+### Scanning Internal / Lab Targets
+
+By default the tool enforces SSRF protection: it refuses URLs that point at
+private IP ranges, loopback, link-local/cloud-metadata addresses, internal
+hostnames, or any domain that *resolves* to a private IP. This is intentional
+for normal use.
+
+For an **authorized** lab or CTF host on an internal range, pass
+`--allow-private` to opt out of those checks:
+
+```bash
+# Scrape a CTF/lab box on an internal IP (note: scheme is still required)
+python webscrape.py http://10.10.10.5/ --allow-private
+
+# Works with spider and security modes too
+python webscrape.py http://10.10.10.5/ --spider --allow-private --depth 2
+```
+
+Notes:
+- A scheme (`http://` / `https://`) and valid host are still required — a bare
+  IP like `10.10.10.5` is rejected.
+- `--allow-private` only relaxes the private/internal checks; scheme and length
+  validation stay on.
+- Only use this against targets you own or are explicitly authorized to test.
+
 ### Command Line Options
 
 | Option | Description |
@@ -138,6 +163,7 @@ python webscrape.py https://target.com --spider --security --depth 2 --delay 2.0
 | `--exclude` | Regex patterns to exclude from crawling |
 | `--delay` | Delay between requests in seconds (default: 1.0) |
 | `--security` | Enable security analysis for IDOR and injection vulnerability detection |
+| `--allow-private` | Allow scraping private/internal IPs and hostnames (authorized lab/CTF targets only; SSRF guard stays on by default) |
 | `--help` | Show detailed help and usage examples |
 
 ## Output Formats
