@@ -601,9 +601,9 @@ def analyze_security_findings(input_data, url):
     
     return analysis
 
-def validate_url(url):
+def validate_url(url, allow_private=False):
     """Enhanced URL validation with comprehensive SSRF protection.
-    
+
     Security checks performed:
     - Ensures only HTTP/HTTPS schemes are allowed
     - Validates presence of domain (netloc)
@@ -611,6 +611,12 @@ def validate_url(url):
     - Prevents access to internal network resources
     - Checks for reasonable URL length
     - Resolves hostnames to prevent DNS-based bypasses
+
+    When allow_private=True (opt-in --allow-private lab mode), the SSRF
+    checks (private/loopback/link-local IPs, internal hostnames/TLDs,
+    DNS-resolves-to-private) are skipped so the tool can target an
+    authorized lab/CTF host on an internal range. Scheme, netloc, and
+    length validation still apply.
     
     Args:
         url (str): URL to validate
@@ -631,7 +637,13 @@ def validate_url(url):
         # Check for valid netloc (domain)
         if not parsed.netloc:
             return False, "Invalid URL: missing domain"
-        
+
+        # Lab/CTF opt-out: skip SSRF checks for an authorized internal target.
+        if allow_private:
+            if len(url) > MAX_URL_LENGTH:
+                return False, f"URL too long (max {MAX_URL_LENGTH} characters)"
+            return True, "Valid URL (private targets allowed)"
+
         # CRITICAL: Prevent SSRF attacks
         # Block localhost variations
         localhost_patterns = [
@@ -835,7 +847,9 @@ def spider_website(start_url, max_depth=2, same_domain_only=True, exclude_patter
         
         try:
             # Validate URL
-            is_valid, validation_message = validate_url(current_url)
+            is_valid, validation_message = validate_url(
+                current_url,
+                allow_private=getattr(spider_website, '_allow_private', False))
             if not is_valid:
                 print(f"  ❌ Skipped: {validation_message}")
                 continue
@@ -1811,6 +1825,8 @@ Examples:
                        help=f'Delay between requests in seconds (default: {DEFAULT_SPIDER_DELAY})')
     
     # Security-specific arguments
+    parser.add_argument('--allow-private', action='store_true',
+                        help='Allow scraping private/internal IPs and hostnames (authorized lab/CTF targets only; SSRF guard stays on by default)')
     parser.add_argument('--security', action='store_true',
                        help='Enable security analysis mode to identify IDOR and injection vulnerabilities')
     
@@ -1839,7 +1855,7 @@ def main() -> None:
             url = input('Enter the domain (with https/http schema): ').strip()
         
         # Validate URL format and security
-        is_valid, validation_message = validate_url(url)
+        is_valid, validation_message = validate_url(url, allow_private=args.allow_private)
         if not is_valid:
             print(f"Error: {validation_message}")
             sys.exit(1)
@@ -1861,6 +1877,7 @@ def main() -> None:
                 print(f"🔒 Security analysis: ENABLED")
             
             # Set security mode flag for spider function
+            spider_website._allow_private = args.allow_private
             if args.security:
                 spider_website._security_mode = True
             
